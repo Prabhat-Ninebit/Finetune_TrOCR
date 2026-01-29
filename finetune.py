@@ -138,17 +138,34 @@ cer_metric = evaluate.load("cer")
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
 
-    if predictions.ndim == 3:
-        predictions = predictions.argmax(axis=-1)
+    # Seq2SeqTrainer may return tuples
+    if isinstance(predictions, tuple):
+        predictions = predictions[0]
 
+    # If predictions are logits, convert to token IDs
+    if predictions.ndim == 3:
+        predictions = np.argmax(predictions, axis=-1)
+
+    # Replace -100 in labels so tokenizer can decode
     labels = np.where(
         labels != -100,
         labels,
         processor.tokenizer.pad_token_id
     )
 
-    pred_str  = processor.batch_decode(predictions, skip_special_tokens=True)
-    label_str = processor.batch_decode(labels, skip_special_tokens=True)
+    # VERY IMPORTANT: ensure correct dtype
+    predictions = predictions.astype(np.int64)
+    labels = labels.astype(np.int64)
+
+    pred_str = processor.batch_decode(
+        predictions,
+        skip_special_tokens=True
+    )
+
+    label_str = processor.batch_decode(
+        labels,
+        skip_special_tokens=True
+    )
 
     cer = cer_metric.compute(
         predictions=pred_str,
@@ -156,6 +173,7 @@ def compute_metrics(eval_pred):
     )
 
     return {"cer": cer}
+
 
 
 # -----------------------------
