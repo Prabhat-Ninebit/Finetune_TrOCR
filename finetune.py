@@ -199,9 +199,9 @@ training_args = Seq2SeqTrainingArguments(
 
     predict_with_generate=False,
 
-    metric_for_best_model="cer",
-    greater_is_better=False,
-    load_best_model_at_end=True,
+    # metric_for_best_model="cer",
+    # greater_is_better=False,
+    # load_best_model_at_end=True,
 
     dataloader_num_workers=0,
     remove_unused_columns=False,
