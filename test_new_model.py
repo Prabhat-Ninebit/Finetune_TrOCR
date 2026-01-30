@@ -20,7 +20,7 @@ processor = TrOCRProcessor(image_processor=image_processor, tokenizer=tokenizer)
 model = VisionEncoderDecoderModel.from_pretrained(trained_model_path).to(DEVICE)
 
 # 3. Load and Preprocess Image
-image_path = '/home/azureuser/hindi_ocr/custom_dataset/kavita.jpg'
+image_path = '/home/azureuser/hindi_ocr/custom_dataset/sundar.jpg'
 image = Image.open(image_path).convert('RGB')
 
 # 4. Generate Text
