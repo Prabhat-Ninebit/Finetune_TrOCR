@@ -194,6 +194,11 @@ trainer = Seq2SeqTrainer(
 )
 
 print("📊 Evaluation started...")
+
+# Force the model to predict on just 3 samples to see the text
+test_output = trainer.predict(val_ds.select(range(3)))
+print("PREDICTIONS:", processor.batch_decode(test_output.predictions, skip_special_tokens=True))
+
 results = trainer.evaluate()
 
 print("Evaluation Results:", results)
