@@ -34,7 +34,7 @@ OUTPUT_DIR  = "/mnt/blob/checkpoints"
 MAX_LABEL_LENGTH = 32
 BATCH_SIZE = 16
 EPOCHS = 10
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 2e-5
 
 
 # -----------------------------
@@ -61,9 +61,11 @@ model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
 
 
 # 3. Standard model config setup
-model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
+model.config.decoder_start_token_id = processor.tokenizer.cls_token_id # or 2
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
+model.config.max_length = 64 
+
 model.to(DEVICE)
 
 
@@ -183,14 +185,14 @@ def compute_metrics(eval_pred):
 training_args = Seq2SeqTrainingArguments(
     output_dir=OUTPUT_DIR,
 
-    eval_strategy="no",
+    eval_strategy="steps",
     save_strategy="steps",
     save_steps=1000,
-    # eval_steps=200,
+    eval_steps=500,
     save_total_limit=2,
     per_device_train_batch_size=BATCH_SIZE,
-    # per_device_eval_batch_size=1,
-    # eval_accumulation_steps=1,
+    per_device_eval_batch_size=1,
+    eval_accumulation_steps=2,
 
     learning_rate=LEARNING_RATE,
     num_train_epochs=EPOCHS,
