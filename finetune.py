@@ -56,8 +56,21 @@ val_ds   = load_csv(os.path.join(DATASET_DIR, "val.csv"))
 # -----------------------------
 # MODEL & PROCESSOR
 # -----------------------------
-processor = TrOCRProcessor.from_pretrained(MODEL_NAME)
-model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+# processor = TrOCRProcessor.from_pretrained(MODEL_NAME)
+# model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+# -----------------------------
+# MODEL & PROCESSOR
+# -----------------------------
+# Check if a checkpoint exists, if so, load from there. Otherwise, use base.
+if os.path.isdir(OUTPUT_DIR) and get_last_checkpoint(OUTPUT_DIR):
+    checkpoint_path = get_last_checkpoint(OUTPUT_DIR)
+    print(f"✅ Loading fine-tuned weights from: {checkpoint_path}")
+    model = VisionEncoderDecoderModel.from_pretrained(checkpoint_path)
+    processor = TrOCRProcessor.from_pretrained(checkpoint_path) 
+else:
+    print("⚠️ No checkpoint found! Evaluating the BASE model.")
+    model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+    processor = TrOCRProcessor.from_pretrained(MODEL_NAME)
 
 model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
@@ -174,12 +187,32 @@ def compute_metrics(eval_pred):
 
     return {"cer": cer}
 
+training_args = Seq2SeqTrainingArguments(
+    output_dir=OUTPUT_DIR,
 
+    # --- Evaluation Activation ---
+    do_train=False,                   # Disable the training loop
+    do_eval=True,                    # Enable evaluation mode
+    eval_strategy="no",              # Leave as "no" since you'll call .evaluate() manually
+    
+    # --- Batch & Performance ---
+    per_device_eval_batch_size=8,    # Increase from 1 for faster eval if memory allows
+    eval_accumulation_steps=10,      # Increase to reduce GPU-to-CPU overhead
+    fp16=True,                       # Keep for faster inference on compatible GPUs
+
+    # --- Sequence-to-Sequence Settings ---
+    predict_with_generate=True,      # REQUIRED to calculate CER; generates actual text instead of raw loss
+    
+    # --- Cleanup ---
+    report_to="none",
+    seed=42,
+    remove_unused_columns=False,
+)
 
 # -----------------------------
 # TRAINING ARGS (SPOT-VM SAFE)
 # -----------------------------
-training_args = Seq2SeqTrainingArguments(
+# training_args = Seq2SeqTrainingArguments(
 #     output_dir=OUTPUT_DIR,
 
 #     eval_strategy="no",
@@ -209,67 +242,43 @@ training_args = Seq2SeqTrainingArguments(
 #     report_to="none",
 #     seed=42,
 # )
-    output_dir=OUTPUT_DIR,
-
-    eval_strategy="steps",       # 🔹 ENABLE EVAL
-    eval_steps=1000,             # 🔹 optional
-    save_strategy="steps",
-    save_steps=1000,
-    save_total_limit=2,
-
-    per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=1,
-    eval_accumulation_steps=1,
-
-    learning_rate=LEARNING_RATE,
-    num_train_epochs=EPOCHS,
-
-    fp16=True,
-    logging_steps=100,
-
-    predict_with_generate=True,  # 🔹 REQUIRED
-    generation_max_length=MAX_LABEL_LENGTH,
-
-    metric_for_best_model="cer",
-    greater_is_better=False,
-    load_best_model_at_end=True,
-
-    dataloader_num_workers=0,
-    remove_unused_columns=False,
-
-    report_to="none",
-    seed=42,
-)
 
 
 # -----------------------------
 # TRAINER
 # -----------------------------
 trainer = Seq2SeqTrainer(
-    model=model,
+    model=model,                       # Your fine-tuned model
     args=training_args,
-    train_dataset=train_ds,
-    eval_dataset=val_ds,
-    data_collator=data_collator,
-    compute_metrics=compute_metrics,
+    eval_dataset=val_ds,    # Validation data is required for evaluation
+    compute_metrics=compute_metrics
+    # model=model,
+    # args=training_args,
+    # train_dataset=train_ds,
+    # eval_dataset=val_ds,
+    # data_collator=data_collator,
+    # compute_metrics=compute_metrics,
 )
 
 
 # -----------------------------
 # RESUME-SAFE TRAINING
 # -----------------------------
-last_checkpoint = None
-if os.path.isdir(OUTPUT_DIR):
-    last_checkpoint = get_last_checkpoint(OUTPUT_DIR)
+# last_checkpoint = None
+# if os.path.isdir(OUTPUT_DIR):
+#     last_checkpoint = get_last_checkpoint(OUTPUT_DIR)
+print("📊 Evaluation started...")
+results = trainer.evaluate()
 
-print("🚀 Training started...")
-trainer.train(resume_from_checkpoint=last_checkpoint)
+print("Evaluation Results:", results)
+# print("🚀 Training started...")
+# trainer.train(resume_from_checkpoint=last_checkpoint)
 
 
-# -----------------------------
-# SAVE FINAL MODEL
-# -----------------------------
-trainer.save_model(OUTPUT_DIR)
-processor.save_pretrained(OUTPUT_DIR)
+# # -----------------------------
+# # SAVE FINAL MODEL
+# # -----------------------------
+# trainer.save_model(OUTPUT_DIR)
+# processor.save_pretrained(OUTPUT_DIR)
 
-print("✅ Training complete. Model saved to:", OUTPUT_DIR)
+# print("✅ Training complete. Model saved to:", OUTPUT_DIR)
