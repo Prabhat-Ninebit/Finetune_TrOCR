@@ -180,16 +180,46 @@ def compute_metrics(eval_pred):
 # TRAINING ARGS (SPOT-VM SAFE)
 # -----------------------------
 training_args = Seq2SeqTrainingArguments(
+#     output_dir=OUTPUT_DIR,
+
+#     eval_strategy="no",
+#     save_strategy="steps",
+#     save_steps=1000,
+#     # eval_steps=200,
+#     save_total_limit=2,
+#     per_device_train_batch_size=BATCH_SIZE,
+#     per_device_eval_batch_size=1,
+#     eval_accumulation_steps=1,
+
+#     learning_rate=LEARNING_RATE,
+#     num_train_epochs=EPOCHS,
+
+#     fp16=True,
+#     logging_steps=100,
+
+#     predict_with_generate=False,
+
+#     metric_for_best_model="cer",
+#     greater_is_better=False,
+#     load_best_model_at_end=True,
+
+#     dataloader_num_workers=0,
+#     remove_unused_columns=False,
+
+#     report_to="none",
+#     seed=42,
+# )
     output_dir=OUTPUT_DIR,
 
-    eval_strategy="no",
+    eval_strategy="steps",       # 🔹 ENABLE EVAL
+    eval_steps=1000,             # 🔹 optional
     save_strategy="steps",
     save_steps=1000,
-    # eval_steps=200,
     save_total_limit=2,
+
     per_device_train_batch_size=BATCH_SIZE,
-    # per_device_eval_batch_size=1,
-    # eval_accumulation_steps=1,
+    per_device_eval_batch_size=1,
+    eval_accumulation_steps=1,
 
     learning_rate=LEARNING_RATE,
     num_train_epochs=EPOCHS,
@@ -197,11 +227,12 @@ training_args = Seq2SeqTrainingArguments(
     fp16=True,
     logging_steps=100,
 
-    predict_with_generate=False,
+    predict_with_generate=True,  # 🔹 REQUIRED
+    generation_max_length=MAX_LABEL_LENGTH,
 
-    # metric_for_best_model="cer",
-    # greater_is_better=False,
-    # load_best_model_at_end=True,
+    metric_for_best_model="cer",
+    greater_is_better=False,
+    load_best_model_at_end=True,
 
     dataloader_num_workers=0,
     remove_unused_columns=False,
