@@ -236,7 +236,11 @@ generated_ids = model.generate(
 
 manual_preds = processor.batch_decode(generated_ids, skip_special_tokens=True)
 print(f"DEBUG PREDICTIONS: {manual_preds}")
-sss
+test_text = "नमस्ते" # 'Namaste' in Hindi
+tokens = processor.tokenizer.tokenize(test_text)
+print(f"Tokenization Test: {tokens}")
+print(f"Vocabulary Size: {len(processor.tokenizer)}")
+
 
 print("📊 Evaluation started...")
 
