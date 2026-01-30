@@ -59,29 +59,39 @@ else:
     model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
 
 # 3. Standard model config setup
+# 1. Force the start token (TrOCR usually uses the 'cls_token')
 model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
+
+# 2. Ensure vocab sizes match (crucial for some TrOCR versions)
+model.config.vocab_size = model.config.decoder.vocab_size
+
+# 3. Update the Generation Config (This is often what's missing)
+model.generation_config.decoder_start_token_id = processor.tokenizer.cls_token_id
+model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
+model.generation_config.eos_token_id = processor.tokenizer.sep_token_id
+
 model.to(DEVICE)
 
 # -----------------------------
 # WEIGHT INTEGRITY CHECK
 # -----------------------------
-print("🔍 Checking model weights for collapse...")
-has_nan = False
-for name, param in model.named_parameters():
-    if torch.isnan(param).any():
-        print(f"🚨 WEIGHT COLLAPSE DETECTED: {name} contains NaNs!")
-        has_nan = True
-    if torch.isinf(param).any():
-        print(f"🚨 WEIGHT EXPLOSION DETECTED: {name} contains Infs!")
-        has_nan = True
+# print("🔍 Checking model weights for collapse...")
+# has_nan = False
+# for name, param in model.named_parameters():
+#     if torch.isnan(param).any():
+#         print(f"🚨 WEIGHT COLLAPSE DETECTED: {name} contains NaNs!")
+#         has_nan = True
+#     if torch.isinf(param).any():
+#         print(f"🚨 WEIGHT EXPLOSION DETECTED: {name} contains Infs!")
+#         has_nan = True
 
-if not has_nan:
-    print("✅ Weights appear numerically stable (no NaNs or Infs).")
-else:
-    print("❌ Model is corrupted. You must restart training with a lower learning rate.")
-# -----------------------------
+# if not has_nan:
+#     print("✅ Weights appear numerically stable (no NaNs or Infs).")
+# else:
+#     print("❌ Model is corrupted. You must restart training with a lower learning rate.")
+# # -----------------------------
 def preprocess(batch):
     encoding = processor.tokenizer(
         batch["text"],
@@ -210,25 +220,23 @@ trainer = Seq2SeqTrainer(
     compute_metrics=compute_metrics,
     data_collator=data_collator,
 )
-print("🔍 Running manual generation test...")
-# Pick 3 samples from your validation dataset
+print("🔍 Running forced manual generation test...")
 sample_batch = [val_ds[i] for i in range(3)]
-# Process them through your custom collator to get pixel_values
 inputs = data_collator(sample_batch)
 pixel_values = inputs["pixel_values"].to(DEVICE)
 
-# Manually trigger generation with specific parameters
 generated_ids = model.generate(
     pixel_values, 
-    max_length=MAX_LABEL_LENGTH,
+    max_length=64,
+    min_length=5,              # FORCE it to generate at least 5 tokens
     num_beams=4,
-    decoder_start_token_id=model.config.decoder_start_token_id
+    decoder_start_token_id=model.config.decoder_start_token_id,
+    use_cache=True
 )
 
-# Decode and print
 manual_preds = processor.batch_decode(generated_ids, skip_special_tokens=True)
 print(f"DEBUG PREDICTIONS: {manual_preds}")
-# -----------------------------
+sss
 
 print("📊 Evaluation started...")
 
