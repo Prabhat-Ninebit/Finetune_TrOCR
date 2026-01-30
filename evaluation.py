@@ -64,6 +64,24 @@ model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
 model.to(DEVICE)
 
+# -----------------------------
+# WEIGHT INTEGRITY CHECK
+# -----------------------------
+print("🔍 Checking model weights for collapse...")
+has_nan = False
+for name, param in model.named_parameters():
+    if torch.isnan(param).any():
+        print(f"🚨 WEIGHT COLLAPSE DETECTED: {name} contains NaNs!")
+        has_nan = True
+    if torch.isinf(param).any():
+        print(f"🚨 WEIGHT EXPLOSION DETECTED: {name} contains Infs!")
+        has_nan = True
+
+if not has_nan:
+    print("✅ Weights appear numerically stable (no NaNs or Infs).")
+else:
+    print("❌ Model is corrupted. You must restart training with a lower learning rate.")
+# -----------------------------
 def preprocess(batch):
     encoding = processor.tokenizer(
         batch["text"],
