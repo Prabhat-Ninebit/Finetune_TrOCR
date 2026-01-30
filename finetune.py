@@ -25,11 +25,11 @@ print("Using device:", DEVICE)
 # -----------------------------
 # CONFIG
 # -----------------------------
-MODEL_NAME = "microsoft/trocr-base-handwritten"
+MODEL_NAME = "sabaridsnfuji/Hindi_Offline_Handwritten_OCR"
 
 DATASET_DIR = "/home/azureuser/hindi_ocr/dataset"
 IMAGE_DIR   = "/home/azureuser/hindi_ocr/dataset/HindiSeg"   # IMPORTANT (see CSV paths)
-OUTPUT_DIR  = "/mnt/blob/checkpoints"
+OUTPUT_DIR  = "/mnt/blob/hindicheckpoint"
 
 MAX_LABEL_LENGTH = 32
 BATCH_SIZE = 16
@@ -61,14 +61,14 @@ model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
 
 
 # 2. Update architectural config (Standard)
-model.config.decoder_start_token_id = processor.tokenizer.bos_token_id
+model.config.decoder_start_token_id = processor.tokenizer.bos_token_id or processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
 
 # 3. Update Generation Config (The Fix for the ValueError)
 # This is where max_length, num_beams, etc., now belongs
 model.generation_config.max_length = 64
-model.generation_config.decoder_start_token_id = processor.tokenizer.bos_token_id
+model.generation_config.decoder_start_token_id = model.config.decoder_start_token_id
 model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
 model.generation_config.eos_token_id = processor.tokenizer.sep_token_id
 
@@ -190,34 +190,29 @@ def compute_metrics(eval_pred):
 # -----------------------------
 training_args = Seq2SeqTrainingArguments(
     output_dir=OUTPUT_DIR,
-
     eval_strategy="steps",
     save_strategy="steps",
     save_steps=1000,
     eval_steps=500,
     save_total_limit=2,
     per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=1,
+    per_device_eval_batch_size=4,      # Increased from 1 for speed
     eval_accumulation_steps=2,
-
     learning_rate=LEARNING_RATE,
     num_train_epochs=EPOCHS,
-
     fp16=True,
     logging_steps=100,
-
-    predict_with_generate=False,
-
+    predict_with_generate=True,       # <--- MUST BE TRUE
+    generation_max_length=64,         # <--- ADD THIS
     metric_for_best_model="cer",
     greater_is_better=False,
     load_best_model_at_end=True,
-
     dataloader_num_workers=0,
     remove_unused_columns=False,
-
     report_to="none",
     seed=42,
 )
+
 
 
 # -----------------------------
