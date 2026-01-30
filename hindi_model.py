@@ -85,7 +85,10 @@ def preprocess(batch):
     
     labels = [[(l if l != processor.tokenizer.pad_token_id else -100) for l in label] for label in labels]
     
-    return {"pixel_values": pixel_values, "labels": labels}
+    return {
+        "pixel_values": torch.tensor(np.array(pixel_values)), 
+        "labels": torch.tensor(labels)
+    }
 
 # Use set_transform instead of map. This takes 0 seconds.
 train_ds.set_transform(preprocess)
@@ -121,6 +124,7 @@ training_args = Seq2SeqTrainingArguments(
     logging_steps=100,
     learning_rate=LEARNING_RATE,
     num_train_epochs=EPOCHS,
+    remove_unused_columns=False,
     per_device_train_batch_size=BATCH_SIZE,
     per_device_eval_batch_size=BATCH_SIZE,
     fp16=True,                        # Use mixed precision for faster training
