@@ -60,11 +60,17 @@ processor = TrOCRProcessor.from_pretrained(MODEL_NAME)
 model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
 
 
-# 3. Standard model config setup
-model.config.decoder_start_token_id = processor.tokenizer.cls_token_id # or 2
+# 2. Update architectural config (Standard)
+model.config.decoder_start_token_id = processor.tokenizer.bos_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
-model.config.max_length = 64 
+
+# 3. Update Generation Config (The Fix for the ValueError)
+# This is where max_length, num_beams, etc., now belongs
+model.generation_config.max_length = 64
+model.generation_config.decoder_start_token_id = processor.tokenizer.bos_token_id
+model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
+model.generation_config.eos_token_id = processor.tokenizer.sep_token_id
 
 model.to(DEVICE)
 
