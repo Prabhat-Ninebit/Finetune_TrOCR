@@ -2,7 +2,7 @@
 set -e
 
 # ====== VARIABLES (change these) ======
-CONTAINER_NAME="hindiCheckpoint"
+CONTAINER_NAME="hindicheckpoint"
 MOUNT_POINT="/mnt/blob-${CONTAINER_NAME}"
 CACHE_DIR="/mnt/blobfuse_cache_${CONTAINER_NAME}"
 TMP_DIR="/mnt/blobfuse_tmp_${CONTAINER_NAME}"
