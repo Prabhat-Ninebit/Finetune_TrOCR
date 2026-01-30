@@ -48,30 +48,32 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 processor = TrOCRProcessor(image_processor=img_processor, tokenizer=tokenizer)
 model = VisionEncoderDecoderModel.from_pretrained(MODEL_ID)
 
-# Define IDs
-START_TOKEN = tokenizer.bos_token_id or tokenizer.cls_token_id
-PAD_TOKEN = tokenizer.pad_token_id
-EOS_TOKEN = tokenizer.sep_token_id
+# FORCE THE INTEGER ID
+# For RoBERTa-based Hindi decoders, 0 is the <s> token
+START_TOKEN_ID = 0 
+PAD_TOKEN_ID = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 1
 
-# Initial Config Setup
-model.config.decoder_start_token_id = START_TOKEN
-model.config.pad_token_id = PAD_TOKEN
-model.config.eos_token_id = EOS_TOKEN
-model.generation_config.decoder_start_token_id = START_TOKEN
-model.generation_config.pad_token_id = PAD_TOKEN
+# Apply to model config
+model.config.decoder_start_token_id = START_TOKEN_ID
+model.config.pad_token_id = PAD_TOKEN_ID
+model.config.eos_token_id = tokenizer.sep_token_id or 2
+
+# Apply to generation config
+model.generation_config.decoder_start_token_id = START_TOKEN_ID
+model.generation_config.pad_token_id = PAD_TOKEN_ID
 
 # -----------------------------
-# 4. CALLBACK & PREPROCESS
+# 4. UPDATED CALLBACK (FORCED INTEGER)
 # -----------------------------
-# FIX: This forces the config back into the model if a checkpoint overwrites it
 class FixConfigCallback(TrainerCallback):
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         if model is not None:
-            model.config.decoder_start_token_id = START_TOKEN
-            model.config.pad_token_id = PAD_TOKEN
-            model.generation_config.decoder_start_token_id = START_TOKEN
-            print(f"✅ Config Forced: decoder_start_token_id set to {START_TOKEN}")
-
+            # We hardcode 0 here to ensure it's NEVER None
+            model.config.decoder_start_token_id = 0 
+            model.config.pad_token_id = PAD_TOKEN_ID
+            model.generation_config.decoder_start_token_id = 0
+            print(f"✅ FINAL FORCE: decoder_start_token_id set to 0")
+            
 def preprocess(batch):
     # Fix: Load images properly for set_transform
     images = [Image.open(os.path.join(IMAGE_DIR, name)).convert("RGB") for name in batch["file_name"]]
