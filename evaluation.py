@@ -12,6 +12,7 @@ from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 # -----------------------------
 # GPU CHECK
@@ -19,45 +20,50 @@ from transformers import (
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", DEVICE)
 
+
 # -----------------------------
 # CONFIG
 # -----------------------------
-MODEL_DIR = "/mnt/blob/checkpoints"   # trained model dir
+MODEL_NAME = "microsoft/trocr-base-handwritten"
+
 DATASET_DIR = "/home/azureuser/hindi_ocr/dataset"
-IMAGE_DIR   = "/home/azureuser/hindi_ocr/dataset/HindiSeg"
+IMAGE_DIR   = "/home/azureuser/hindi_ocr/dataset/HindiSeg"   # IMPORTANT (see CSV paths)
+OUTPUT_DIR  = "/mnt/blob/checkpoints"
 
 MAX_LABEL_LENGTH = 32
-EVAL_BATCH_SIZE = 1   # keep small for GPU safety
+BATCH_SIZE = 16
+EPOCHS = 10
+LEARNING_RATE = 5e-5
 
-# -----------------------------
-# LOAD CSV
-# -----------------------------
 def load_csv(csv_path):
     df = pd.read_csv(
         csv_path,
-        header=0,
-        usecols=["file_name", "text"],
+        header=0,                       # EXPLICIT: first row is header
+        usecols=["file_name", "text"],  # enforce schema
     )
     return Dataset.from_pandas(df, preserve_index=False)
 
-val_ds = load_csv(os.path.join(DATASET_DIR, "val.csv"))
 
-# -----------------------------
-# LOAD MODEL & PROCESSOR
-# -----------------------------
-processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
-model = VisionEncoderDecoderModel.from_pretrained(MODEL_DIR)
+val_ds   = load_csv(os.path.join(DATASET_DIR, "val.csv"))
 
+processor = TrOCRProcessor.from_pretrained(MODEL_NAME)
+
+# 2. Determine where to load the model weights from
+if os.path.isdir(OUTPUT_DIR) and get_last_checkpoint(OUTPUT_DIR):
+    checkpoint_path = get_last_checkpoint(OUTPUT_DIR)
+    print(f"✅ Loading fine-tuned weights from: {checkpoint_path}")
+    # Load weights from the checkpoint
+    model = VisionEncoderDecoderModel.from_pretrained(checkpoint_path)
+else:
+    print("⚠️ No checkpoint found! Loading the BASE model.")
+    model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+
+# 3. Standard model config setup
 model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.eos_token_id = processor.tokenizer.sep_token_id
-
 model.to(DEVICE)
-model.eval()
 
-# -----------------------------
-# PREPROCESS (TEXT → LABELS)
-# -----------------------------
 def preprocess(batch):
     encoding = processor.tokenizer(
         batch["text"],
@@ -76,16 +82,9 @@ def preprocess(batch):
         "file_name": batch["file_name"],
         "labels": labels,
     }
+    
+val_ds   = val_ds.map(preprocess, remove_columns=val_ds.column_names)
 
-val_ds = val_ds.map(
-    preprocess,
-    remove_columns=["text"]   # keep file_name!
-)
-
-
-# -----------------------------
-# DATA COLLATOR
-# -----------------------------
 class TrOCRDataCollator:
     def __init__(self, processor, image_dir):
         self.processor = processor
@@ -101,6 +100,9 @@ class TrOCRDataCollator:
             images.append(image)
             labels.append(item["labels"])
 
+        if len(images) == 0:
+            raise ValueError("Empty batch encountered")
+
         pixel_values = self.processor(
             images=images,
             return_tensors="pt"
@@ -110,10 +112,12 @@ class TrOCRDataCollator:
 
         return {
             "pixel_values": pixel_values,
-            "labels": labels,
+            "labels": labels
         }
 
+
 data_collator = TrOCRDataCollator(processor, IMAGE_DIR)
+
 
 # -----------------------------
 # METRIC (CER)
@@ -123,15 +127,24 @@ cer_metric = evaluate.load("cer")
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
 
+    # Seq2SeqTrainer may return tuples
     if isinstance(predictions, tuple):
         predictions = predictions[0]
 
-    # predictions are token IDs (because predict_with_generate=True)
+    # If predictions are logits, convert to token IDs
+    if predictions.ndim == 3:
+        predictions = np.argmax(predictions, axis=-1)
+
+    # Replace -100 in labels so tokenizer can decode
     labels = np.where(
         labels != -100,
         labels,
         processor.tokenizer.pad_token_id
     )
+
+    # VERY IMPORTANT: ensure correct dtype
+    predictions = predictions.astype(np.int64)
+    labels = labels.astype(np.int64)
 
     pred_str = processor.batch_decode(
         predictions,
@@ -150,36 +163,37 @@ def compute_metrics(eval_pred):
 
     return {"cer": cer}
 
-# -----------------------------
-# EVAL ARGS (GPU SAFE)
-# -----------------------------
-eval_args = Seq2SeqTrainingArguments(
-    output_dir="./eval_tmp",
-    per_device_eval_batch_size=EVAL_BATCH_SIZE,
-    fp16=True,
-    predict_with_generate=True,   # VERY IMPORTANT
-    generation_max_length=MAX_LABEL_LENGTH,
-    dataloader_num_workers=0,
+training_args = Seq2SeqTrainingArguments(
+    output_dir=OUTPUT_DIR,
+
+    # --- Evaluation Activation ---
+    do_train=False,                   # Disable the training loop
+    do_eval=True,                    # Enable evaluation mode
+    eval_strategy="no",              # Leave as "no" since you'll call .evaluate() manually
+    
+    # --- Batch & Performance ---
+    per_device_eval_batch_size=8,    # Increase from 1 for faster eval if memory allows
+    eval_accumulation_steps=10,      # Increase to reduce GPU-to-CPU overhead
+    fp16=True,                       # Keep for faster inference on compatible GPUs
+
+    # --- Sequence-to-Sequence Settings ---
+    predict_with_generate=True,      # REQUIRED to calculate CER; generates actual text instead of raw loss
+    
+    # --- Cleanup ---
     report_to="none",
+    seed=42,
+    remove_unused_columns=False,
 )
 
-# -----------------------------
-# TRAINER (EVAL ONLY)
-# -----------------------------
 trainer = Seq2SeqTrainer(
-    model=model,
-    args=eval_args,
-    eval_dataset=val_ds,
-    data_collator=data_collator,
+    model=model,                       # Your fine-tuned model
+    args=training_args,
+    eval_dataset=val_ds,    # Validation data is required for evaluation
     compute_metrics=compute_metrics,
+    data_collator=data_collator,
 )
 
-# -----------------------------
-# RUN EVALUATION
-# -----------------------------
-print("🔍 Running evaluation...")
-metrics = trainer.evaluate()
+print("📊 Evaluation started...")
+results = trainer.evaluate()
 
-print("\n📊 Evaluation Results:")
-for k, v in metrics.items():
-    print(f"{k}: {v}")
+print("Evaluation Results:", results)
