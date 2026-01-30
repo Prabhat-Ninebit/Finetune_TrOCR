@@ -12,7 +12,7 @@ from transformers import (
     TrOCRProcessor,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
-    default_data_collator
+    default_data_collator,
 )
 
 # ======================
@@ -21,8 +21,8 @@ from transformers import (
 MODEL_ID = "sabaridsnfuji/Hindi_Offline_Handwritten_OCR"
 
 DATASET_DIR = "/home/azureuser/hindi_ocr/dataset"
-IMAGE_ROOT  = os.path.join(DATASET_DIR, "HindiSeg")
-OUTPUT_DIR  = "/mnt/blob/hindicheckpoint"
+IMAGE_ROOT = os.path.join(DATASET_DIR, "HindiSeg")
+OUTPUT_DIR = "/mnt/blob/hindicheckpoint"
 
 MAX_LENGTH = 64
 BATCH_SIZE = 16
@@ -39,8 +39,9 @@ def load_csv(name):
     df = pd.read_csv(os.path.join(DATASET_DIR, name))
     return Dataset.from_pandas(df)
 
+
 train_ds = load_csv("train.csv")
-val_ds   = load_csv("val.csv")
+val_ds = load_csv("val.csv")
 
 
 # ======================
@@ -52,10 +53,7 @@ image_processor = AutoImageProcessor.from_pretrained(
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-processor = TrOCRProcessor(
-    image_processor=image_processor,
-    tokenizer=tokenizer
-)
+processor = TrOCRProcessor(image_processor=image_processor, tokenizer=tokenizer)
 
 
 # ======================
@@ -73,6 +71,7 @@ model.config.eos_token_id = tokenizer.sep_token_id or 2
 # ======================
 PAD_TOKEN = tokenizer.pad_token_id
 
+
 def preprocess(batch):
 
     images = [
@@ -83,18 +82,12 @@ def preprocess(batch):
     inputs = processor(images=images, return_tensors="pt")
 
     labels = tokenizer(
-        batch["text"],
-        padding="max_length",
-        max_length=MAX_LENGTH,
-        truncation=True
+        batch["text"], padding="max_length", max_length=MAX_LENGTH, truncation=True
     ).input_ids
 
     labels = [[l if l != PAD_TOKEN else -100 for l in lab] for lab in labels]
 
-    return {
-        "pixel_values": inputs.pixel_values,
-        "labels": torch.tensor(labels)
-    }
+    return {"pixel_values": inputs.pixel_values, "labels": torch.tensor(labels)}
 
 
 train_ds.set_transform(preprocess)
@@ -106,6 +99,7 @@ val_ds.set_transform(preprocess)
 # ======================
 cer_metric = evaluate.load("cer")
 
+
 def compute_metrics(pred):
     pred_ids = pred.predictions
     label_ids = pred.label_ids
@@ -115,7 +109,19 @@ def compute_metrics(pred):
     label_ids[label_ids == -100] = PAD_TOKEN
     label_str = processor.batch_decode(label_ids, skip_special_tokens=True)
 
-    return {"cer": cer_metric.compute(predictions=pred_str, references=label_str)}
+    # Filter out empty references to avoid division by zero in CER calculation
+    filtered_pairs = [(p, r) for p, r in zip(pred_str, label_str) if r.strip()]
+
+    if not filtered_pairs:
+        # If all references are empty, return CER of 0 or 1 depending on predictions
+        return {"cer": 1.0 if any(p.strip() for p in pred_str) else 0.0}
+
+    filtered_preds, filtered_refs = zip(*filtered_pairs)
+    return {
+        "cer": cer_metric.compute(
+            predictions=list(filtered_preds), references=list(filtered_refs)
+        )
+    }
 
 
 # ======================
@@ -140,7 +146,7 @@ training_args = Seq2SeqTrainingArguments(
     metric_for_best_model="cer",
     greater_is_better=False,
     dataloader_num_workers=2,
-    report_to="none"
+    report_to="none",
 )
 
 
@@ -153,9 +159,9 @@ trainer = Seq2SeqTrainer(
     train_dataset=train_ds,
     eval_dataset=val_ds,
     data_collator=default_data_collator,
-    compute_metrics=compute_metrics
+    compute_metrics=compute_metrics,
+    # tokenizer=processor,
 )
-
 
 
 # ======================
